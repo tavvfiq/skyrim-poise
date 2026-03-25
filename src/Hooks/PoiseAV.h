@@ -4,6 +4,10 @@
 
 #include "FormUtil.h"
 
+#include <chrono>
+#include <shared_mutex>
+#include <unordered_map>
+
 //static float* g_deltaTime = (float*)RELOCATION_ID(523660, 410199).address();          // 2F6B948, 30064C8
 //static float* g_deltaTimeRealTime = (float*)RELOCATION_ID(523661, 410200).address();  // 2F6B94C, 30064CC
 
@@ -28,9 +32,17 @@ public:
 	bool  CanDamageActor(RE::Actor* a_actor);
 	float GetBaseActorValue(RE::Actor* a_actor);
 	float GetActorValueMax(RE::Actor* a_actor);
-	void  DamageAndCheckPoise(RE::Actor* a_target, RE::Actor* a_aggressor, float a_poiseDamage);
+
+	// Applies ER-style poise damage to PassivePoise and/or Stance (depending on target classification).
+	// Returns true if the hit should suppress flinch/stagger (PassivePoise absorbed the hit).
+	bool ApplyPoiseDamage(RE::Actor* a_target, RE::Actor* a_aggressor, float a_poiseDamage);
+
 	void  Update(RE::Actor* a_actor, float a_delta);
 	void  GarbageCollection();
+
+	// TrueHUD uses these for the Special bar (PassivePoise only).
+	float GetPassiveCurrent(RE::Actor* a_actor);
+	float GetPassiveMax(RE::Actor* a_actor);
 
 	//static void TryPushActorAway(RE::Actor* target, [[maybe_unused]] float staggerMult, RE::Actor* aggressor)
 	//{
@@ -138,6 +150,34 @@ public:
 		REL::Relocation<func_t> func{ REL::RelocationID(23073, 23526) };  // 1.5.97 14032ECE0
 		return func(entry, actor_a, actor_b, out);
 	}
+
+private:
+	using Clock = std::chrono::steady_clock;
+	static double NowSeconds()
+	{
+		using sec = std::chrono::duration<double>;
+		return std::chrono::duration_cast<sec>(Clock::now().time_since_epoch()).count();
+	}
+
+	struct RuntimeState
+	{
+		double lastPassiveHitSec{ 0.0 };
+		double lastStanceHitSec{ 0.0 };
+		double stanceBreakImmuneUntilSec{ 0.0 };
+	};
+
+	mutable std::shared_mutex                           _rtMtx;
+	std::unordered_map<RE::FormID, RuntimeState>        _rt;
+
+	bool IsPassiveTarget(RE::Actor* a_actor) const;
+	bool IsStanceTarget(RE::Actor* a_actor) const;
+
+	float ComputePassiveMax(RE::Actor* a_actor) const;
+	float ComputeStanceMax(RE::Actor* a_actor) const;
+
+	// Persistent meter values stored in AVManager's json (for save/load).
+	float GetStoredMeter(RE::Actor* a_actor, const char* a_meterKey, float a_default) const;
+	void  SetStoredMeter(RE::Actor* a_actor, const char* a_meterKey, float a_value);
 
 protected:
 	struct Hooks

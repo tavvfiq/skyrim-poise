@@ -64,6 +64,13 @@ void Settings::LoadINI(const wchar_t* a_path)
 
 	Modes.StaggerMode = ini.GetLongValue("Modes", "StaggerMode", Modes.StaggerMode);
 
+	PassivePoise.RefillDelaySeconds = static_cast<float>(ini.GetDoubleValue("PassivePoise", "RefillDelaySeconds", PassivePoise.RefillDelaySeconds));
+	PassivePoise.RefillRatePerSecond = static_cast<float>(ini.GetDoubleValue("PassivePoise", "RefillRatePerSecond", PassivePoise.RefillRatePerSecond));
+
+	Stance.RefillDelaySeconds = static_cast<float>(ini.GetDoubleValue("Stance", "RefillDelaySeconds", Stance.RefillDelaySeconds));
+	Stance.RefillRatePerSecond = static_cast<float>(ini.GetDoubleValue("Stance", "RefillRatePerSecond", Stance.RefillRatePerSecond));
+	Stance.BreakCooldownSeconds = static_cast<float>(ini.GetDoubleValue("Stance", "BreakCooldownSeconds", Stance.BreakCooldownSeconds));
+
 	Health.BaseMult = static_cast<float>(ini.GetDoubleValue("Health", "BaseMult", Health.BaseMult));
 	Health.ArmorMult = static_cast<float>(ini.GetDoubleValue("Health", "ArmorMult", Health.ArmorMult));
 	Health.RegenRate = static_cast<float>(ini.GetDoubleValue("Health", "RegenRate", Health.RegenRate));

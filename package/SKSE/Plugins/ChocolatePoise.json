@@ -1,10 +1,24 @@
 {
-    "Races" : {
-        "ChickenRace" : 0.5,
-        "HareRace"    : 0.3,
-        "SkeeverRace" : 0.6,
-        "SkeeverWhiteRace" : 0.6
-    },
+  "Races": {
+    "ChickenRace": 0.5,
+    "HareRace": 0.3,
+    "SkeeverRace": 0.6,
+    "SkeeverWhiteRace": 0.6
+  },
+  "Stance": {
+    "Default": 80.0,
+    "Races": {
+      "DragonRace": 120.0
+    }
+  },
+  "Poise": {
+    "BaseBySubtype": {
+      "Standard": 5.0,
+      "Strike": 7.0,
+      "Slash": 6.0,
+      "Pierce": 5.5
+    }
+  },
   "Magic Effects": {
     "Actor Values": {
       "Damage": {

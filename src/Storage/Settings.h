@@ -45,6 +45,22 @@ public:
 		int StaggerMode{ 1 };
 	} Modes;
 
+	// ER-style posture/poise tuning.
+	// PassivePoise: anti-flinch pool for humanoids (Player + ActorTypeNPC).
+	// Stance: posture-break pool for bosses/creatures (ActorTypeBoss or CreatureFaction).
+	struct
+	{
+		float RefillDelaySeconds{ 2.0f };
+		float RefillRatePerSecond{ 10.0f };
+	} PassivePoise;
+
+	struct
+	{
+		float RefillDelaySeconds{ 8.0f };
+		float RefillRatePerSecond{ 40.0f };
+		float BreakCooldownSeconds{ 2.0f };
+	} Stance;
+
 	struct
 	{
 		float BaseMult{ 20 };

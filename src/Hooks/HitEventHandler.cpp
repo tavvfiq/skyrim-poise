@@ -3,10 +3,31 @@
 #include "Hooks/PoiseAV.h"
 #include "Storage/Settings.h"
 
+namespace
+{
+	constexpr const char* KW_ERCF_STD = "ERCF.DamageType.Phys.Standard";
+	constexpr const char* KW_ERCF_STRIKE = "ERCF.DamageType.Phys.Strike";
+	constexpr const char* KW_ERCF_SLASH = "ERCF.DamageType.Phys.Slash";
+	constexpr const char* KW_ERCF_PIERCE = "ERCF.DamageType.Phys.Pierce";
+}
 
 float HitEventHandler::GetWeaponDamage(RE::TESObjectWEAP* a_weapon)
 {
 	auto settings = Settings::GetSingleton();
+	if (!a_weapon) {
+		return 0.0f;
+	}
+
+	// Prefer ERCF physical subtype keyword tags if present.
+	if (a_weapon->HasKeywordString(KW_ERCF_STD) && settings->JSONSettings["Poise"]["BaseBySubtype"]["Standard"] != nullptr)
+		return static_cast<float>(settings->JSONSettings["Poise"]["BaseBySubtype"]["Standard"]);
+	if (a_weapon->HasKeywordString(KW_ERCF_STRIKE) && settings->JSONSettings["Poise"]["BaseBySubtype"]["Strike"] != nullptr)
+		return static_cast<float>(settings->JSONSettings["Poise"]["BaseBySubtype"]["Strike"]);
+	if (a_weapon->HasKeywordString(KW_ERCF_SLASH) && settings->JSONSettings["Poise"]["BaseBySubtype"]["Slash"] != nullptr)
+		return static_cast<float>(settings->JSONSettings["Poise"]["BaseBySubtype"]["Slash"]);
+	if (a_weapon->HasKeywordString(KW_ERCF_PIERCE) && settings->JSONSettings["Poise"]["BaseBySubtype"]["Pierce"] != nullptr)
+		return static_cast<float>(settings->JSONSettings["Poise"]["BaseBySubtype"]["Pierce"]);
+
 	for (int index = a_weapon->numKeywords - 1; index >= 0; index--) {
 		if (a_weapon->keywords[index]) {
 			std::string keyword = a_weapon->keywords[index]->formEditorID.c_str();
@@ -23,6 +44,54 @@ float HitEventHandler::GetWeaponDamage(RE::TESObjectWEAP* a_weapon)
 			}
 		}
 	}
+
+	// Vanilla fallback based on weapon type buckets.
+	// JSON path: Weapons/Damage/<ClassName>
+	using WT = RE::TESObjectWEAP::WEAPON_TYPE;
+	switch (a_weapon->GetWeaponType()) {
+	case WT::kOneHandDagger:
+		if (settings->JSONSettings["Weapons"]["Damage"]["Dagger"] != nullptr)
+			return static_cast<float>(settings->JSONSettings["Weapons"]["Damage"]["Dagger"]);
+		break;
+	case WT::kOneHandSword:
+		if (settings->JSONSettings["Weapons"]["Damage"]["Sword"] != nullptr)
+			return static_cast<float>(settings->JSONSettings["Weapons"]["Damage"]["Sword"]);
+		break;
+	case WT::kTwoHandSword:
+		if (settings->JSONSettings["Weapons"]["Damage"]["Greatsword"] != nullptr)
+			return static_cast<float>(settings->JSONSettings["Weapons"]["Damage"]["Greatsword"]);
+		break;
+	case WT::kOneHandAxe:
+		if (settings->JSONSettings["Weapons"]["Damage"]["WarAxe"] != nullptr)
+			return static_cast<float>(settings->JSONSettings["Weapons"]["Damage"]["WarAxe"]);
+		break;
+	case WT::kTwoHandAxe:
+		if (settings->JSONSettings["Weapons"]["Damage"]["Battleaxe"] != nullptr)
+			return static_cast<float>(settings->JSONSettings["Weapons"]["Damage"]["Battleaxe"]);
+		break;
+	case WT::kOneHandMace:
+		if (settings->JSONSettings["Weapons"]["Damage"]["Mace"] != nullptr)
+			return static_cast<float>(settings->JSONSettings["Weapons"]["Damage"]["Mace"]);
+		break;
+	case WT::kTwoHandMace:
+		if (settings->JSONSettings["Weapons"]["Damage"]["Warhammer"] != nullptr)
+			return static_cast<float>(settings->JSONSettings["Weapons"]["Damage"]["Warhammer"]);
+		break;
+	case WT::kBow:
+		{
+			const char* key = (a_weapon->weaponData.animationType == RE::WEAPON_TYPE::kCrossbow) ? "Crossbow" : "Bow";
+			if (settings->JSONSettings["Weapons"]["Damage"][key] != nullptr)
+				return static_cast<float>(settings->JSONSettings["Weapons"]["Damage"][key]);
+		}
+		break;
+	case WT::kHandToHandMelee:
+		if (settings->JSONSettings["Weapons"]["Damage"]["HandToHandMelee"] != nullptr)
+			return static_cast<float>(settings->JSONSettings["Weapons"]["Damage"]["HandToHandMelee"]);
+		break;
+	default:
+		break;
+	}
+
 	return a_weapon->weight;
 }
 
@@ -56,57 +125,62 @@ float HitEventHandler::GetMiscDamage()
 
 float HitEventHandler::RecalculateStagger(RE::Actor* target, RE::Actor* aggressor, RE::HitData* hitData)
 {
-	auto  settings = Settings::GetSingleton();
-	float stagger = 0.0;
+	auto* settings = Settings::GetSingleton();
+	if (!hitData || !aggressor) {
+		return 0.0f;
+	}
+
+	// ER-style poise damage: Base (weapon class) × Motion value.
+	float base = 0.0f;
 
 	auto sourceRef = hitData->sourceRef.get().get();
-	if (sourceRef) {
-		if (sourceRef->AsProjectile() && sourceRef->AsProjectile()->ammoSource && sourceRef->AsProjectile()->weaponSource) {
-			stagger = GetWeaponDamage(sourceRef->AsProjectile()->weaponSource) * settings->Damage.BowMult;
-			stagger *= 1.0f + aggressor->GetActorValue(RE::ActorValue::kBowStaggerBonus);
-		} else
-			logger::debug("Missed attack with sourceRef");
+	if (sourceRef && sourceRef->AsProjectile() && sourceRef->AsProjectile()->weaponSource) {
+		base = GetWeaponDamage(sourceRef->AsProjectile()->weaponSource);
 	} else if (hitData->weapon) {
 		if (hitData->weapon->As<RE::TESObjectWEAP>()->IsHandToHandMelee()) {
-			stagger = GetUnarmedDamage(aggressor) * settings->Damage.UnarmedMult;
+			base = GetUnarmedDamage(aggressor);
 		} else {
-			stagger = GetWeaponDamage(hitData->weapon) * settings->Damage.MeleeMult;
+			base = GetWeaponDamage(hitData->weapon);
 		}
-	} else if (hitData->skill == RE::ActorValue::kNone) {
-		stagger = hitData->physicalDamage * settings->Damage.CreatureMult;
 	} else if (hitData->skill == RE::ActorValue::kBlock) {
 		auto leftHand = aggressor->GetEquippedObject(true);
 		auto rightHand = aggressor->GetEquippedObject(false);
 		if (leftHand && leftHand->formType == RE::FormType::Armor) {
-			stagger = GetShieldDamage(leftHand->As<RE::TESObjectARMO>()) * settings->Damage.BashMult;
+			base = GetShieldDamage(leftHand->As<RE::TESObjectARMO>());
 		} else if (rightHand && rightHand->formType == RE::FormType::Weapon) {
-			stagger = GetWeaponDamage(rightHand->As<RE::TESObjectWEAP>()) * settings->Damage.BashMult;
+			base = GetWeaponDamage(rightHand->As<RE::TESObjectWEAP>());
 		} else {
-			stagger = GetMiscDamage() * settings->Damage.BashMult;
+			base = GetMiscDamage();
 		}
 	} else {
-		logger::debug("Unknown attack");
-		return 0.0f;
+		// Creature attacks: use physicalDamage as a baseline if nothing else exists.
+		base = std::max(0.0f, hitData->physicalDamage);
 	}
 
-	auto attackData = hitData->attackData ? hitData->attackData.get() : nullptr;
-	if (attackData) {
-		stagger *= 1 + attackData->data.staggerOffset;
-		logger::debug(FMT_STRING("Stagger Mult {}"), 1 * attackData->data.staggerOffset);
+	float mv = 1.0f;  // light
+
+	// Sprint detection: use actor state if available.
+	const bool sprinting = aggressor->actorState1.sprinting;
+
+	// Power attack detection (CommonLibSSE-NG): HitData::Flag::kPowerAttack.
+	const bool power = hitData->flags.any(RE::HitData::Flag::kPowerAttack);
+
+	if (sprinting) {
+		mv = power ? 3.0f : 1.5f;
+	} else {
+		mv = power ? 2.0f : 1.0f;
 	}
 
-	float baseMult = 1.0f - hitData->percentBlocked;
-	logger::debug(FMT_STRING("Percent Blocked {}"), hitData->percentBlocked);
+	// Block reduces effective poise damage (optional); keep simple for now.
+	mv *= (1.0f - hitData->percentBlocked);
 
-	PoiseAV::ApplyPerkEntryPoint(34, aggressor, target, &baseMult);
-	PoiseAV::ApplyPerkEntryPoint(33, target, aggressor, &baseMult);
+	// Optional perk entrypoints remain available; keep them as multipliers on MV.
+	float perkMult = 1.0f;
+	PoiseAV::ApplyPerkEntryPoint(34, aggressor, target, &perkMult);
+	PoiseAV::ApplyPerkEntryPoint(33, target, aggressor, &perkMult);
+	mv *= perkMult;
 
-	stagger *= baseMult;
-	if (hitData->totalDamage && hitData->physicalDamage)
-	stagger *= hitData->totalDamage / hitData->physicalDamage;
-	stagger = stagger * min(1 - (target->armorRating * 0.12f + target->armorBaseFactorSum) / 100.0f, 0.8f); 
-
-	return stagger;
+	return std::max(0.0f, base * mv);
 }
 
 void HitEventHandler::PreProcessHit(RE::Actor* target, RE::HitData* hitData)
@@ -115,7 +189,11 @@ void HitEventHandler::PreProcessHit(RE::Actor* target, RE::HitData* hitData)
 	auto aggressor = hitData->aggressor ? hitData->aggressor.get().get() : nullptr;
 	if (aggressor && poiseAV->CanDamageActor(target)) {
 		auto poiseDamage = RecalculateStagger(target, aggressor, hitData);
-		poiseAV->DamageAndCheckPoise(target, aggressor, poiseDamage);
+		const bool suppress = poiseAV->ApplyPoiseDamage(target, aggressor, poiseDamage);
+		if (suppress) {
+			hitData->stagger = static_cast<uint32_t>(0.00);
+		}
+		return;
 	}
-	hitData->stagger = static_cast<uint32_t>(0.00);
+	// Default: do not force stagger suppression if we didn't process poise.
 }
